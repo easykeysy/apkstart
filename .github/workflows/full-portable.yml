@@ -1,0 +1,130 @@
+name: Full portable pack
+
+# 自动跟车：Release 工作流成功跑完（tag push 或手动 dispatch）后，自动把同一版
+# 完整便携版（内置运行时、解压即用）打出来，挂到对应 Release 上。
+# 也可以在 Actions 页面手动 dispatch，指定任意已有 tag。
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要打包的 Release tag
+        required: true
+        default: v0.6.3
+      force:
+        description: 已存在同名资产时也重建
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: full-portable-${{ github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  pack-full:
+    name: 构建完整便携版（解压即用）
+    # 手动 dispatch 一律执行；自动触发只在 Release 成功且 ref 是 v* tag 时执行
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: 解析目标 tag
+        id: tag
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.tag }}"
+          } else {
+            $tag = "${{ github.event.workflow_run.head_branch }}"
+          }
+          if (-not $tag.StartsWith('v')) { $tag = "v$tag" }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Output "target tag: $tag"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: 已有完整包就跳过
+        id: gate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          $name = "ApkStart-$tag-win64-full-portable.zip"
+          $existing = gh release view $tag --json assets --jq '.assets[].name' 2>$null
+          if ($existing -contains $name -and "${{ inputs.force }}" -ne "true") {
+            "skip=true" >> $env:GITHUB_OUTPUT
+            Write-Output "$name 已存在，跳过（force=true 可重建）"
+          } else {
+            "skip=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        if: steps.gate.outputs.skip != 'true'
+        run: npm ci
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+
+      - name: 复用 Release 里的运行时整包
+        if: steps.gate.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          gh release download $tag --pattern "ApkStart-runtime-*.zip" --output runtime.zip --clobber
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Release $tag 里没有 ApkStart-runtime-*.zip，先等 Release 工作流跑完"
+            exit 1
+          }
+          Expand-Archive -Path runtime.zip -DestinationPath build/runtime -Force
+          if (-not (Test-Path "build\runtime\emulator\emulator.exe")) {
+            Write-Error "运行时解压后缺少 emulator.exe"
+            Get-ChildItem build/runtime | Select-Object Name
+            exit 1
+          }
+
+      - name: 打包完整版（含 assets 与运行时）
+        if: steps.gate.outputs.skip != 'true'
+        run: npm run pack:full
+
+      - name: 压缩并生成校验文件
+        if: steps.gate.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          $ver = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          node build/zip.js "dist/ApkStart-v$ver-win64-full" "ApkStart-$tag-win64-full-portable.zip" --limit-mb 1900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item "ApkStart-$tag-win64-full-portable.zip" | Select-Object Name, Length
+          $hash = (Get-FileHash "ApkStart-$tag-win64-full-portable.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ApkStart-$tag-win64-full-portable.zip" | Set-Content -Encoding ascii "ApkStart-$tag-win64-full-portable.zip.sha256"
+          Get-Content "ApkStart-$tag-win64-full-portable.zip.sha256"
+
+      - name: 上传到 Release
+        if: steps.gate.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.tag.outputs.tag }}"
+          gh release upload $tag "ApkStart-$tag-win64-full-portable.zip" "ApkStart-$tag-win64-full-portable.zip.sha256" --clobber
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          gh release view $tag --json assets --jq '.assets[] | "\(.name) \(.size)"'
