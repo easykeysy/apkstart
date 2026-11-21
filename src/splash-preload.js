@@ -1,6 +1,9 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
+const localeArg = process.argv.find((a) => a.startsWith('--apkstart-locale='));
+contextBridge.exposeInMainWorld('__APKSTART_LOCALE__', localeArg ? localeArg.split('=')[1] : 'en');
+
 contextBridge.exposeInMainWorld('apkstartSplash', {
   version: () => ipcRenderer.invoke('splash:version'),
   isFirstRun: () => ipcRenderer.invoke('splash:isFirstRun'),

@@ -3,6 +3,10 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const invoke = (channel, payload) => ipcRenderer.invoke(channel, payload);
 
+// 主进程用 additionalArguments 把界面语言带进来，页面第一帧就是对的，不会先闪中文
+const localeArg = process.argv.find((a) => a.startsWith('--apkstart-locale='));
+contextBridge.exposeInMainWorld('__APKSTART_LOCALE__', localeArg ? localeArg.split('=')[1] : 'en');
+
 contextBridge.exposeInMainWorld('apkstart', {
   info: () => invoke('app:info'),
   listApps: () => invoke('apps:list'),

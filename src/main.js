@@ -38,6 +38,7 @@ function loadTrayIcon() {
   return nativeImage.createFromBuffer(drawAppIcon(16));
 }
 const assoc = require('./core/assoc');
+const i18n = require('./core/i18n');
 const windowctl = require('./core/windowctl');
 const display = require('./core/display');
 const { WinAgent } = require('./core/agent');
@@ -843,6 +844,7 @@ function createWindow({ show = true } = {}) {
       nodeIntegration: false,
       sandbox: false,
       spellcheck: false,
+      additionalArguments: [`--apkstart-locale=${i18n.locale()}`],
     },
   });
 
@@ -942,8 +944,8 @@ function openManual(payload = {}) {
         if (/^https?:\/\//i.test(url)) shell.openExternal(url);
       });
     }
-    manualWindow.setTitle(`ApkStart 使用手册 · ${target.title}`);
-    manualWindow.loadFile(path.join(__dirname, 'ui', 'manual.html'), { hash: target.anchor });
+    manualWindow.setTitle(i18n.t('ApkStart 使用手册 · {0}').replace('{0}', target.title));
+    manualWindow.loadFile(path.join(__dirname, 'ui', i18n.locale() === 'en' ? 'manual.en.html' : 'manual.html'), { hash: target.anchor });
     manualWindow.once('ready-to-show', () => {
       if (!manualWindow || manualWindow.isDestroyed()) return;
       manualWindow.show();
@@ -1735,6 +1737,7 @@ function registerIpc() {
   ipcMain.handle('settings:set', (_e, rawPatch) => {
     const patch = sanitizeResourcePatch(rawPatch);
     const next = store.saveSettings(patch);
+    if (patch && patch.ui && patch.ui.locale) i18n.setLocale(patch.ui.locale);
     if (patch && patch.autoStart !== undefined) applyAutoStart();
     if (patch && patch.display && appWin && appWin.isOpen) {
       // 竖屏基准尺寸变了：只影响后续打开的窗口大小，不打断正在跑的应用
@@ -2878,6 +2881,9 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     store.ensureDirs();
+    // 界面语言：设置里的 ui.locale 决定渲染进程词典与原生对话框语言
+    i18n.setLocale((store.getSettings().ui || {}).locale || 'en');
+    i18n.installHooks({ dialog, Menu });
     /**
      * 记下「当前是谁在管这台运行时」。
      *
@@ -2926,6 +2932,7 @@ if (!gotLock) {
         webPreferences: {
           preload: path.join(__dirname, 'splash-preload.js'),
           contextIsolation: true, nodeIntegration: false, sandbox: false,
+          additionalArguments: [`--apkstart-locale=${i18n.locale()}`],
         },
       });
       // 用 screen-saver 级别确保不被模拟器窗口盖住（之前 alwaysOnTop 默认 level

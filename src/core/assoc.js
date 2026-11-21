@@ -4,6 +4,7 @@
  * 双击 apk → apkstart.exe "%1" → 自动安装 → 自动建桌面快捷方式
  */
 const { execFileSync } = require('child_process');
+const { t } = require('./i18n');
 
 const PROGID = 'ApkStart.apk';
 const EXT = '.apk';
@@ -80,10 +81,11 @@ function registerAssociation(exePath, iconPath, extraArgs) {
   reg(['add', `${CLASSES}\\${EXT}`, '/ve', '/d', PROGID, '/f']);
   reg(['add', `${CLASSES}\\${EXT}\\OpenWithProgids`, '/v', PROGID, '/t', 'REG_NONE', '/f']);
 
-  reg(['add', `${CLASSES}\\${PROGID}`, '/ve', '/d', 'Android 应用包', '/f']);
-  reg(['add', `${CLASSES}\\${PROGID}`, '/v', 'FriendlyTypeName', '/d', 'Android 应用包', '/f']);
+  // 资源管理器「类型」列和右键菜单直接读注册表，绕开了对话框包装层，得自己翻
+  reg(['add', `${CLASSES}\\${PROGID}`, '/ve', '/d', t('Android 应用包'), '/f']);
+  reg(['add', `${CLASSES}\\${PROGID}`, '/v', 'FriendlyTypeName', '/d', t('Android 应用包'), '/f']);
   reg(['add', `${CLASSES}\\${PROGID}\\DefaultIcon`, '/ve', '/d', `"${icon}",0`, '/f']);
-  reg(['add', `${CLASSES}\\${PROGID}\\shell\\open`, '/ve', '/d', '安装到 ApkStart', '/f']);
+  reg(['add', `${CLASSES}\\${PROGID}\\shell\\open`, '/ve', '/d', t('安装到 ApkStart'), '/f']);
   reg(['add', `${CLASSES}\\${PROGID}\\shell\\open\\command`, '/ve', '/d', command, '/f']);
 
   notifyShell();
