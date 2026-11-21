@@ -28,7 +28,7 @@ function walk(dir, out = []) {
       // 词典本身与编译产物里全是中文键，扫进来只会污染统计
       if (name === 'i18n') continue;
       walk(p, out);
-    } else if (/\.(js|html)$/.test(name)) {
+    } else if (/\.(js|html|json)$/.test(name)) {
       // 手册是整篇本地化（docs/USER-MANUAL.en.md → manual.en.html），不按句抽键
       if (name === 'i18n-dict.js' || name === 'i18n.js' || name === 'manual.html' || name === 'manual.en.html') continue;
       out.push(p);
@@ -104,6 +104,22 @@ function jsLiterals(src) {
           else if (d === '}') depth -= 1;
           else if (d === "'" || d === '"') { skipQuoted(d); continue; }
           else if (d === '`') { skipTemplate(); continue; }
+          else if (d === '/' && /[([{,;:=!&|?+\-*%<>~^]/.test(src[i - 1] || '')) {
+            // ${...} 里的正则字面量：/['"]/ 这种写法里的引号不是字符串开头
+            i += 1;
+            let inClass = false;
+            while (i < n) {
+              const e = src[i];
+              if (e === '\\') { i += 2; continue; }
+              if (e === '[') inClass = true;
+              else if (e === ']') inClass = false;
+              else if (e === '/' && !inClass) { i += 1; break; }
+              else if (e === '\n') break;
+              i += 1;
+            }
+            while (i < n && /[a-z]/i.test(src[i])) i += 1;
+            continue;
+          }
           if (d === '\n') line += 1;
           if (depth > 0) i += 1;
         }
@@ -164,6 +180,14 @@ function literalPieces(body) {
   return [t];
 }
 
+/** JSON 里所有字符串值（驱动补丁的 name / description / notes 会原样显示在设置里） */
+function jsonStrings(node, out = []) {
+  if (typeof node === 'string') out.push(node);
+  else if (Array.isArray(node)) node.forEach((v) => jsonStrings(v, out));
+  else if (node && typeof node === 'object') Object.values(node).forEach((v) => jsonStrings(v, out));
+  return out;
+}
+
 function collect() {
   const keys = new Map();
   const add = (k, rel) => {
@@ -179,6 +203,11 @@ function collect() {
     const src = fs.readFileSync(file, 'utf8');
     if (file.endsWith('.html')) {
       for (const p of htmlPieces(src)) add(p, rel);
+    } else if (file.endsWith('.json')) {
+      for (const v of jsonStrings(JSON.parse(src))) {
+        const t = v.replace(/\s+/g, ' ').trim();
+        if (t && CJK.test(t)) add(t, rel);
+      }
     } else {
       for (const lit of jsLiterals(src)) {
         for (const p of literalPieces(lit.body)) add(p, rel);

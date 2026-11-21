@@ -64,6 +64,11 @@ test('没有源码里已不存在的孤儿键', () => {
   assert(orphans.length === 0, `孤儿键 ${orphans.length} 条：${orphans.slice(0, 3)}`);
 });
 
+test('源码里的每条文案都有译文（含驱动补丁 JSON）', () => {
+  const missing = keys.filter((k) => !(k in en));
+  assert(missing.length === 0, `缺译文 ${missing.length} 条：${missing.slice(0, 3)}`);
+});
+
 test('译文不是原样照抄（除语言名等专有名词）', () => {
   const SAME_OK = new Set(['日本語', '繁體中文', 'English（镜像原生）']);
   const same = Object.entries(en).filter(([k, v]) => k === v && !SAME_OK.has(k));
