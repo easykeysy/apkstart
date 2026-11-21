@@ -32,8 +32,16 @@ function assert(cond, msg) {
 const ROOT = path.join(__dirname, '..');
 const I18N = require(path.join(ROOT, 'src/ui/i18n.js'));
 const en = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/i18n/en.json'), 'utf8'));
-const keys = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/i18n/keys.json'), 'utf8'))
-  .map((e) => e.key);
+
+// keys.json 是提取产物、不入库：CI 里是干净检出，先跑一遍提取再校验孤儿键。
+const KEYS_FILE = path.join(ROOT, 'src', 'i18n', 'keys.json');
+if (!fs.existsSync(KEYS_FILE)) {
+  require('child_process').execFileSync(process.execPath, [path.join(ROOT, 'tools', 'i18n-extract.js')], {
+    cwd: ROOT,
+    stdio: 'ignore',
+  });
+}
+const keys = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8')).map((e) => e.key);
 
 const CJK = /[\u3400-\u4dbf\u4e00-\u9fff]/;
 const slots = (s) => (String(s).match(/\{\d+\}/g) || []).length;
