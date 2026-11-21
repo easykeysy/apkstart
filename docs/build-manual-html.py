@@ -5,14 +5,19 @@
 import html
 import os
 import re
+import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-SRC = os.path.join(HERE, 'USER-MANUAL.md')
-OUT = os.path.join(HERE, 'ApkStart-用户手册.html')
+
+# 英文手册与中文手册同结构构建（标题数量一致），锚点沿用中文那份，
+# 这样主进程按「章节 id」深链时两种语言落到同一节。
+EN = '--lang=en' in sys.argv
+SRC = os.path.join(HERE, 'USER-MANUAL.en.md' if EN else 'USER-MANUAL.md')
+OUT = os.path.join(HERE, 'ApkStart-User-Manual.en.html' if EN else 'ApkStart-用户手册.html')
 # 0.6.2 起手册内嵌进软件：同一份 HTML 也要落到 src/ui，随包分发。
 # 主进程打开的就是这一份，绝不依赖 docs/ 或外部文件。
-APP_OUT = os.path.join(ROOT, 'src', 'ui', 'manual.html')
+APP_OUT = os.path.join(ROOT, 'src', 'ui', 'manual.en.html' if EN else 'manual.html')
 
 with open(SRC, encoding='utf-8') as f:
     lines = f.read().split('\n')
@@ -150,12 +155,20 @@ for lvl, anchor, text in toc:
     toc_html.append('<a class="%s" href="#%s">%s</a>' % (cls, anchor, html.escape(text)))
 toc_html = '\n'.join(toc_html)
 
+LABELS = {
+    'lang': 'en' if EN else 'zh-CN',
+    'title': 'ApkStart User Manual & Troubleshooting' if EN else 'ApkStart 产品使用手册与问题解决方案',
+    'toc': 'Contents' if EN else '目录',
+    'search': 'Filter contents (Ctrl+F for full text)' if EN else '筛选目录（Ctrl+F 全文搜索）',
+    'print': 'Print / Save as PDF' if EN else '打印 / 存为 PDF',
+}
+
 doc = '''<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="__LANG__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ApkStart 产品使用手册与问题解决方案</title>
+<title>__TITLE__</title>
 <style>
 :root{--bg:#ffffff;--fg:#1f2328;--mut:#57606a;--line:#d0d7de;--code:#eff1f3;--accent:#0969da;--accent-soft:#ddf4ff;--warn:#9a6700;--warn-bg:#fff8c5;--head:#f6f8fa;--tbl:#f6f8fa}
 *{box-sizing:border-box}
@@ -197,15 +210,15 @@ tbody tr:nth-child(even){background:#fbfcfd}
 </head>
 <body>
 <div class="wrap">
-<aside><h2>目录</h2>
-<input id="tocSearch" type="search" placeholder="筛选目录（Ctrl+F 全文搜索）" autocomplete="off" />
+<aside><h2>__TOC_LABEL__</h2>
+<input id="tocSearch" type="search" placeholder="__SEARCH__" autocomplete="off" />
 <div id="tocList">__TOC__</div>
 </aside>
 <main>
 __BODY__
 </main>
 </div>
-<div class="btnbar"><button onclick="window.print()">打印 / 存为 PDF</button></div>
+<div class="btnbar"><button onclick="window.print()">__PRINT__</button></div>
 <script>
 (function () {
   var input = document.getElementById('tocSearch');
@@ -226,7 +239,22 @@ __BODY__
 </html>
 '''
 
-doc = doc.replace('__TOC__', toc_html).replace('__BODY__', body)
+doc = (doc.replace('__TOC__', toc_html).replace('__BODY__', body)
+       .replace('__LANG__', LABELS['lang']).replace('__TITLE__', LABELS['title'])
+       .replace('__TOC_LABEL__', LABELS['toc']).replace('__SEARCH__', LABELS['search'])
+       .replace('__PRINT__', LABELS['print']))
+
+if EN:
+    # 沿用中文手册的锚点：按标题出现顺序一一对应（两份结构必须一致）
+    zh_file = os.path.join(ROOT, 'src', 'ui', 'manual.html')
+    zh_ids = re.findall(r'<h[1-4] id="([^"]+)"', open(zh_file, encoding='utf-8').read())
+    en_ids = re.findall(r'<h[1-4] id="([^"]+)"', doc)
+    if len(zh_ids) != len(en_ids):
+        raise SystemExit('中英文手册标题数量不一致（%d vs %d），无法对齐锚点' % (len(zh_ids), len(en_ids)))
+    for old, new in zip(en_ids, zh_ids):
+        doc = doc.replace('id="%s"' % old, 'id="%s"' % new)
+    for old, new in zip(en_ids, zh_ids):
+        doc = doc.replace('href="#%s"' % old, 'href="#%s"' % new)
 for target in (OUT, APP_OUT):
     with open(target, 'w', encoding='utf-8') as f:
         f.write(doc)

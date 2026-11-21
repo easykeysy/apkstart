@@ -37,3 +37,6 @@ build/_test/
 
 # 清理旧文件时备份的快捷方式等（不入库）
 build/_removed-backup/
+
+# 提取产物（npm run i18n 重新生成，不入库）
+src/i18n/keys.json
